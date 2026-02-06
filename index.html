@@ -94,7 +94,7 @@ button{
 <body>
 
 <div id="control-panel">
-  <input id="newName" placeholder="Nama">
+  <input id="newName" placeholder="Nama Timer">
   <input id="newMinutes" type="number" min="0" value="1">
   <button class="btn-create" onclick="createNewTimer()">+ TIMER</button>
   <button class="btn-delete" onclick="deleteAll()">HAPUS SEMUA</button>
@@ -135,39 +135,48 @@ const db=getDatabase(app);
 const timersRef=ref(db,"multiTimers");
 const stopwatchRef=ref(db,"stopwatch");
 
-const url=new URLSearchParams(location.search);
+const urlParams=new URLSearchParams(location.search);
 let isPsikopat=false;
 
-if(url.get("role")==="psikopat"){
-  if(prompt("PASSWORD:")==="redmimahal"){
+// CEK ROLE PSIKOPAT
+if(urlParams.get("role")==="psikopat"){
+  const pwd=prompt("MASUKKAN PASSWORD PSIKOPAT:");
+  if(pwd==="redmimahal"){
     isPsikopat=true;
     document.getElementById("control-panel").style.display="flex";
     document.getElementById("role-status").innerText="MODE: PSIKOPAT";
     document.getElementById("role-status").style.color="#e74c3c";
     document.getElementById("sw-controls").style.display="flex";
+  } else {
+    alert("PASSWORD SALAH 😡");
   }
 }
 
 let timers={};
 let stopwatch={seconds:0,money:0,isRunning:false};
 
-onValue(timersRef,s=>{timers=s.val()||{};renderTimers();});
-onValue(stopwatchRef,s=>{stopwatch=s.val()||stopwatch;renderStopwatch();});
+// LISTEN FIREBASE
+onValue(timersRef,s=>{
+  timers=s.val()||{};
+  renderTimers();
+});
+onValue(stopwatchRef,s=>{
+  stopwatch=s.val()||stopwatch;
+  renderStopwatch();
+});
 
+// RENDER TIMERS
 function renderTimers(){
-  const c=document.getElementById("timers-container");
-  c.innerHTML="";
+  const container=document.getElementById("timers-container");
+  container.innerHTML="";
   Object.keys(timers).forEach(k=>{
     const t=timers[k];
     const m=String(Math.floor(t.timeLeft/60)).padStart(2,"0");
     const s=String(t.timeLeft%60).padStart(2,"0");
 
-    c.innerHTML+=`
-    <div class="timer-card">
-      <div class="status-badge">${t.isRunning?"RUNNING":"PAUSED"}</div>
-      <div style="color:#aaa">${t.name}</div>
-      <div class="timer-display">${m}:${s}</div>
-      ${isPsikopat?`
+    let controls = "";
+    if(isPsikopat){
+      controls = `
       <div class="timer-controls">
         <button class="${t.isRunning?"btn-pause":"btn-start"}"
           onclick="toggleTimer('${k}',${!t.isRunning})">
@@ -175,45 +184,61 @@ function renderTimers(){
         </button>
         <button class="btn-reset" onclick="resetTimer('${k}',${t.initialTime})">R</button>
         <button class="btn-delete" onclick="deleteTimer('${k}')">X</button>
-      </div>`:""}
+      </div>`;
+    }
+
+    container.innerHTML+=`
+    <div class="timer-card">
+      <div class="status-badge">${t.isRunning?"RUNNING":"PAUSED"}</div>
+      <div style="color:#aaa">${t.name}</div>
+      <div class="timer-display">${m}:${s}</div>
+      ${controls}
     </div>`;
   });
 }
 
+// RENDER STOPWATCH
 function renderStopwatch(){
-  const m=String(Math.floor(stopwatch.seconds/60)).padStart(2,"0");
-  const s=String(stopwatch.seconds%60).padStart(2,"0");
-  sw-time.innerText=`${m}:${s}`;
-  sw-money.innerText=stopwatch.money;
-  sw-status.innerText=stopwatch.isRunning?"RUNNING":"PAUSED";
+  const m = String(Math.floor(stopwatch.seconds/60)).padStart(2,"0");
+  const s = String(stopwatch.seconds%60).padStart(2,"0");
+
+  document.getElementById("sw-time").innerText = `${m}:${s}`;
+  document.getElementById("sw-money").innerText = stopwatch.money;
+  document.getElementById("sw-status").innerText =
+    stopwatch.isRunning ? "RUNNING" : "PAUSED";
 }
 
+// TIMER LOOP & STOPWATCH (HANYA PSIKOPAT)
 if(isPsikopat){
   setInterval(()=>{
-    const up={};
+    const updates={};
 
+    // TIMER
     Object.keys(timers).forEach(k=>{
       const t=timers[k];
-      if(t.isRunning&&t.timeLeft>0){
-        up[`multiTimers/${k}/timeLeft`]=t.timeLeft-1;
+      if(t.isRunning && t.timeLeft>0){
+        updates[`multiTimers/${k}/timeLeft`] = t.timeLeft-1;
         if(t.timeLeft<=1)
-          up[`multiTimers/${k}/isRunning`]=false;
+          updates[`multiTimers/${k}/isRunning`] = false;
       }
     });
 
+    // STOPWATCH UANG
     if(stopwatch.isRunning){
-      up["stopwatch/seconds"]=stopwatch.seconds+1;
-      if((stopwatch.seconds+1)%60===0)
-        up["stopwatch/money"]=stopwatch.money+100;
+      updates["stopwatch/seconds"] = stopwatch.seconds+1;
+      if((stopwatch.seconds+1)%60===0){
+        updates["stopwatch/money"] = stopwatch.money+100;
+      }
     }
 
-    if(Object.keys(up).length) update(ref(db),up);
+    if(Object.keys(updates).length) update(ref(db),updates);
   },1000);
 }
 
+// FUNCTIONS TIMER
 window.createNewTimer=()=>{
-  const name=newName.value||"TIMER";
-  const min=parseInt(newMinutes.value)||0;
+  const name=document.getElementById("newName").value||"TIMER";
+  const min=parseInt(document.getElementById("newMinutes").value)||0;
   if(min<=0) return alert("WAKTU SALAH");
   push(timersRef,{
     name,
@@ -225,9 +250,10 @@ window.createNewTimer=()=>{
 
 window.toggleTimer=(k,s)=>update(ref(db,`multiTimers/${k}`),{isRunning:s});
 window.resetTimer=(k,i)=>update(ref(db,`multiTimers/${k}`),{timeLeft:i,isRunning:false});
-window.deleteTimer=k=>confirm("Hapus?")&&remove(ref(db,`multiTimers/${k}`));
-window.deleteAll=()=>confirm("Hapus semua?")&&set(timersRef,null);
+window.deleteTimer=k=>confirm("Hapus?") && remove(ref(db,`multiTimers/${k}`));
+window.deleteAll=()=>confirm("Hapus semua?") && set(timersRef,null);
 
+// FUNCTIONS STOPWATCH
 window.toggleStopwatch=s=>update(stopwatchRef,{isRunning:s});
 window.resetStopwatch=()=>update(stopwatchRef,{seconds:0,money:0,isRunning:false});
 </script>
